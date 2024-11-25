@@ -74,22 +74,6 @@ def remove_isolated_lines(lines):
 
     return keep_lines
 
-def post_process_predictions(predictions):
-    corrected_predictions = []
-    for line in predictions:
-        x1, y1, x2, y2 = line
-        if abs(x1 - x2) < 1e-3:
-            corrected_line = [x1, y1, x1, y2]
-        elif abs(y1 - y2) < 1e-3:
-            corrected_line = [x1, y1, x2, y1]
-        else:
-            if abs(x1 - x2) > abs(y1 - y2):
-                corrected_line = [x1, y2, x2, y2]
-            else:
-                corrected_line = [x2, y1, x2, y2]
-        corrected_predictions.append(corrected_line)
-    return np.array(corrected_predictions)
-
 
 image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 _, image = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
