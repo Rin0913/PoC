@@ -5,19 +5,42 @@ import pytesseract
 import numpy as np
 import jinja2
 import json
-# from model import model
+from PIL import Image
+# from process_lib import clean_and_merge_lines
 
-image_path = "./4.png"
-scale = 100
+image_path = "./6.png"
+scale = 1
 line_width = 5
-offset = 1
+offset = 3
+enable_ocr = 0
+enable_regen = 1
 enable_ai = 0
 
-def detect_lines(image, canny_threshold1=50, canny_threshold2=200, hough_threshold=100, min_line_length=50, max_line_gap=10):
-    blurred = cv2.GaussianBlur(image, (3, 3), 0)
-    edges = cv2.Canny(blurred, canny_threshold1, canny_threshold2)
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, hough_threshold, minLineLength=min_line_length, maxLineGap=max_line_gap)
-    return lines
+def generate_image(lines, w, h):
+    image = np.ones((h, w, 3), dtype=np.uint8) * 255
+
+    for line in lines:
+        x1, y1, x2, y2 = line
+        cv2.line(image, (x1, y1), (x2, y2), (0, 0, 0), thickness=2)
+    
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+def detect_lines(image, canny_threshold1=50, canny_threshold2=200, hough_threshold=100, min_line_length=100, max_line_gap=offset * 10):
+    gray = cv2.bitwise_not(image)
+    bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                               cv2.THRESH_BINARY, 15, -2)
+    edges = cv2.Canny(bw, 50, 150, apertureSize=3)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=100,
+                            minLineLength=100, maxLineGap=10)
+
+    lines_list = []
+
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = map(int, line[0])
+            lines_list.append((x1, y1, x2, y2))
+
+    return lines_list
 
 def remove_isolated_lines(lines):
     def lines_intersect(line1, line2, tolerance = offset):
@@ -76,80 +99,57 @@ def remove_isolated_lines(lines):
 
 
 image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-_, image = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
 h, w = image.shape
-background_color = (255, 255, 255)
 
-boxes = pytesseract.image_to_boxes(image, lang='chi_tra')
-for box in boxes.splitlines():
-    box = box.split(' ')
-    char = box[0]
-    x1, y1, x2, y2 = int(box[1]), int(box[2]), int(box[3]), int(box[4])
-    y1 = h - y1
-    y2 = h - y2
-    if char == '~':
-        continue
-    if abs(x1 - x2) <= line_width or abs(y1 - y2) <= line_width:
-        continue
-    cv2.rectangle(image, (x1, y2), (x2, y1), (255, 255, 255), -1)
+if enable_ocr:
+    background_color = (255, 255, 255)
+    boxes = pytesseract.image_to_boxes(image, lang='chi_tra')
+
+    for box in boxes.splitlines():
+        box = box.split(' ')
+        char = box[0]
+        x1, y1, x2, y2 = int(box[1]), int(box[2]), int(box[3]), int(box[4])
+        y1 = h - y1
+        y2 = h - y2
+        if char == '~':
+            continue
+        if abs(x1 - x2) <= line_width or abs(y1 - y2) <= line_width:
+            continue
+        cv2.rectangle(image, (x1, y2), (x2, y1), background_color, -1)
+
+lines = detect_lines(image)
+lines = [
+    list(map(lambda x: round(x / scale), line)) for line in lines
+]
+
+if enable_regen:
+    image = generate_image(lines, round(np.ceil(w / scale)), round(np.ceil(h / scale)))
+    cv2.imwrite("./output.png", image)
+
+if enable_ai:
+    from model import autoencoder
+    image_input = image[np.newaxis, ..., np.newaxis] / 255
+    image = (autoencoder.predict(image_input)[0][..., 0] * 255).astype(np.uint8)
+
+if enable_regen:
+    lines = detect_lines(image)
+    image = generate_image(lines, round(np.ceil(w / scale)), round(np.ceil(h / scale)))
+    cv2.imwrite("./output.png", image)
+_, image = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
+
+lines = detect_lines(image)
 
 cv2.imwrite("./output.png", image)
 
-lines = detect_lines(image)
-line_coordinates = []
 
-if lines is not None:
-    scale = round(max((np.max(lines, axis=0) / scale)[0]))
-    for line in lines:
-        y1, x1, y2, x2 = map(lambda x: round(int(x) / scale), line[0])
-        if x1 == x2:
-            if abs(y1 - y2) <= offset * 2:
-                continue
-        elif y1 == y2:
-            if abs(x1 - x2) <= offset * 2:
-                continue
-        else:
-            print("ERROR:", x1, y1, x2, y2)
-        line_coordinates.append((x1, y1, x2, y2))
-else:
-    print("No line detected!")
-    sys.exit(0)
-
-if enable_ai:
-    line_coordinates.sort()
-    print(line_coordinates)
-    line_coordinates = np.array([(line[0][0], line[0][1], line[1][0], line[1][1]) for line in line_coordinates], dtype=np.float32)
-    line_coordinates = np.expand_dims(line_coordinates, axis=0)
-    R = np.max(line_coordinates, 1)
-    line_coordinates = line_coordinates / R
-    line_coordinates = np.round(model.predict(line_coordinates)[0] * R)
-    for (y1, x1, y2, x2) in line_coordinates:
-        if x1 == x2 or y1 == y2:
-            pass
-        else:
-            print(x1, y1, x2, y2)
-    line_coordinates = post_process_predictions(line_coordinates)
-    line_coordinates = [
-        ((round(line[0]), round(line[1])),
-         (round(line[2]), round(line[3])))
-        for line in line_coordinates
-    ]
-    line_coordinates.sort()
-
-line_coordinates = remove_isolated_lines(line_coordinates)
-print(line_coordinates, len(line_coordinates))
-line_coordinates = [
-    [l[1], l[0], l[3], l[2]] for l in line_coordinates
-]
-
-if len(line_coordinates) == 0:
-    sys.exit(0)
+lines = remove_isolated_lines(lines)
+print(lines, len(lines))
 
 html_content = ""
 with open("./template.html", 'r', encoding='utf-8') as f:
     html_content = f.read()
 html_content = jinja2.Template(html_content)
-html_content = html_content.render(data=json.dumps(line_coordinates))
+html_content = html_content.render(data=json.dumps(lines))
 
 output_path_adjacent = "./graph_representation_adjacent.html"
 with open(output_path_adjacent, "w") as file:

@@ -1,4 +1,58 @@
 function cleanAndMergeLines(lines, threshold = 1) {
+  const adjustedLines = adjustLineCoordinates(lines, threshold);
+  const mergedLines = mergeAdjustedLines(adjustedLines, threshold);
+
+  return mergedLines;
+}
+
+function adjustLineCoordinates(lines, threshold) {
+  const xCoords = new Set();
+  const yCoords = new Set();
+
+  lines.forEach((line) => {
+    xCoords.add(line[0]);
+    xCoords.add(line[2]);
+    yCoords.add(line[1]);
+    yCoords.add(line[3]);
+  });
+
+  const xArray = Array.from(xCoords);
+  const yArray = Array.from(yCoords);
+
+  return lines.map((line) => {
+    const adjustedLine = line.slice();
+
+    adjustedLine[0] = adjustCoordinate(adjustedLine[0], xArray, threshold);
+    adjustedLine[2] = adjustCoordinate(adjustedLine[2], xArray, threshold);
+
+    adjustedLine[1] = adjustCoordinate(adjustedLine[1], yArray, threshold);
+    adjustedLine[3] = adjustCoordinate(adjustedLine[3], yArray, threshold);
+
+    return adjustedLine;
+  });
+}
+
+function adjustCoordinate(value, coordArray, threshold) {
+  const roundedValue = Math.round(value);
+  if (Math.abs(value - roundedValue) <= threshold) {
+    return roundedValue;
+  }
+
+  let nearestValue = value;
+  let minDiff = threshold;
+
+  for (const coord of coordArray) {
+    const diff = Math.abs(value - coord);
+    if (diff <= minDiff) {
+      minDiff = diff;
+      nearestValue = coord;
+    }
+  }
+
+  return nearestValue;
+}
+
+function mergeAdjustedLines(lines, threshold) {
   const cleanedLines = [];
   const verticalLines = [];
   const horizontalLines = [];
@@ -11,60 +65,69 @@ function cleanAndMergeLines(lines, threshold = 1) {
     }
   });
 
-  verticalLines.sort((a, b) => a[0] - b[0] || Math.min(a[1], a[3]) - Math.min(b[1], b[3]));
-
-  const mergedVerticalLines = [];
-  verticalLines.forEach((line) => {
-    if (mergedVerticalLines.length === 0) {
-      mergedVerticalLines.push(line);
-    } else {
-      const last = mergedVerticalLines[mergedVerticalLines.length - 1];
-      if (
-        Math.abs(last[0] - line[0]) <= threshold &&
-        Math.max(last[1], last[3]) >= Math.min(line[1], line[3]) - threshold
-      ) {
-        const newLine = [
-          last[0],
-          Math.min(last[1], last[3], line[1], line[3]),
-          last[0],
-          Math.max(last[1], last[3], line[1], line[3]),
-        ];
-        mergedVerticalLines[mergedVerticalLines.length - 1] = newLine;
-      } else {
-        mergedVerticalLines.push(line);
-      }
-    }
-  });
-
-  horizontalLines.sort((a, b) => a[1] - b[1] || Math.min(a[0], a[2]) - Math.min(b[0], b[2]));
-
-  const mergedHorizontalLines = [];
-  horizontalLines.forEach((line) => {
-    if (mergedHorizontalLines.length === 0) {
-      mergedHorizontalLines.push(line);
-    } else {
-      const last = mergedHorizontalLines[mergedHorizontalLines.length - 1];
-      if (
-        Math.abs(last[1] - line[1]) <= threshold &&
-        Math.max(last[0], last[2]) >= Math.min(line[0], line[2]) - threshold
-      ) {
-        const newLine = [
-          Math.min(last[0], last[2], line[0], line[2]),
-          last[1],
-          Math.max(last[0], last[2], line[0], line[2]),
-          last[1],
-        ];
-        mergedHorizontalLines[mergedHorizontalLines.length - 1] = newLine;
-      } else {
-        mergedHorizontalLines.push(line);
-      }
-    }
-  });
+  const mergedVerticalLines = mergeLines(verticalLines, 'vertical', threshold);
+  const mergedHorizontalLines = mergeLines(horizontalLines, 'horizontal', threshold);
 
   cleanedLines.push(...mergedVerticalLines);
   cleanedLines.push(...mergedHorizontalLines);
 
   return cleanedLines;
+}
+
+function mergeLines(lines, type, threshold) {
+  const n = lines.length;
+  const mergedFlags = new Array(n).fill(false);
+  const result = [];
+
+  for (let i = 0; i < n; i++) {
+    if (mergedFlags[i]) continue;
+    let lineA = lines[i];
+    mergedFlags[i] = true;
+
+    for (let j = i + 1; j < n; j++) {
+      if (mergedFlags[j]) continue;
+      let lineB = lines[j];
+
+      if (type === 'vertical') {
+        if (Math.abs(lineA[0] - lineB[0]) <= threshold) {
+          const yMinA = Math.min(lineA[1], lineA[3]);
+          const yMaxA = Math.max(lineA[1], lineA[3]);
+          const yMinB = Math.min(lineB[1], lineB[3]);
+          const yMaxB = Math.max(lineB[1], lineB[3]);
+
+          if (rangesOverlap(yMinA, yMaxA, yMinB, yMaxB, threshold)) {
+            const yMin = Math.min(yMinA, yMinB);
+            const yMax = Math.max(yMaxA, yMaxB);
+            lineA = [lineA[0], yMin, lineA[0], yMax];
+            mergedFlags[j] = true;
+          }
+        }
+      } else if (type === 'horizontal') {
+        if (Math.abs(lineA[1] - lineB[1]) <= threshold) {
+          const xMinA = Math.min(lineA[0], lineA[2]);
+          const xMaxA = Math.max(lineA[0], lineA[2]);
+          const xMinB = Math.min(lineB[0], lineB[2]);
+          const xMaxB = Math.max(lineB[0], lineB[2]);
+
+          if (rangesOverlap(xMinA, xMaxA, xMinB, xMaxB, threshold)) {
+            const xMin = Math.min(xMinA, xMinB);
+            const xMax = Math.max(xMaxA, xMaxB);
+            lineA = [xMin, lineA[1], xMax, lineA[1]];
+            mergedFlags[j] = true;
+          }
+        }
+      }
+    }
+    result.push(lineA);
+  }
+  return result;
+}
+
+function rangesOverlap(minA, maxA, minB, maxB, threshold) {
+  return (
+    (minB <= maxA + threshold && maxB >= minA - threshold) ||
+    (minA <= maxB + threshold && maxA >= minB - threshold)
+  );
 }
 
 function postProcessLine(line) {

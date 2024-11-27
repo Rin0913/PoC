@@ -1,4 +1,3 @@
-*.weight.h5
-*.html
+*.weights.h5*
 output.png
 graph_representation_adjacent.html

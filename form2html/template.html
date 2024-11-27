@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="lib.js"></script>
+    <title>Graph Representation</title>
+    <style>
+		body, html {
+			width: 100%;
+			height: 100%;
+			overflow: hidden;
+			margin: 0;
+		}
+		canvas {
+			max-width: 100%;
+			max-height: 100%;
+            position: absolute;
+            z-index: 0;
+		}
+        div {
+            position: absolute;
+            z-index: 1;
+            font-size: 20pt;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="lineCanvas"></canvas>
+
+	<script>
+		var lines = {{data}};
+        var texts = [];
+
+		var canvas = document.getElementById('lineCanvas');
+		var ctx = canvas.getContext('2d');
+		var devicePixelRatio = window.devicePixelRatio || 1;
+		canvas.width = window.innerWidth * devicePixelRatio;
+		canvas.height = window.innerHeight * devicePixelRatio;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+		ctx.imageSmoothingEnabled = false;
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        ctx.font = '20pt Arial';
+
+		var isDragging = false;
+        var offset = 5;
+		var offsetX = 0;
+		var offsetY = 0;
+		var lastX = 0;
+		var lastY = 0;
+		var startX = 0;
+		var startY = 0;
+
+		var scale = 1 / 2;
+
+		function getRelativeCoords(event) {
+			var rect = canvas.getBoundingClientRect();
+			return {
+				x: (event.clientX - rect.left) * (canvas.width / rect.width) / devicePixelRatio,
+				y: (event.clientY - rect.top) * (canvas.height / rect.height) / devicePixelRatio
+			};
+		}
+
+		function drawLine(x1, y1, x2, y2) {
+			ctx.beginPath();
+			ctx.lineWidth = 1;
+			ctx.moveTo((x1 - offsetX) * scale, (y1 - offsetY) * scale);
+			ctx.lineTo((x2 - offsetX) * scale, (y2 - offsetY) * scale);
+			ctx.stroke();
+		}
+
+		function draw() {
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+            lines.forEach(line => {
+				drawLine(line[0], line[1], line[2], line[3]);
+            }) 
+            texts.forEach(text => {
+				ctx.fillText(text[2], (text[0] - offsetX) * scale, (text[1] - offsetY) * scale);
+            }) 
+		}
+
+		window.addEventListener('wheel', function(event) {
+			scale -= event.deltaY / 500;
+			draw();
+		});
+
+		canvas.addEventListener("mousedown", function(event) {
+			var coords = getRelativeCoords(event);
+			if (event.button === 1) {
+				isDragging = true;
+				lastX = coords.x;
+				lastY = coords.y;
+			} else if(event.button == 0) {
+				startX = (coords.x / scale) + offsetX;
+				startY = (coords.y / scale) + offsetY;
+            } else if(event.button == 2) {
+                const editableDiv = document.createElement('div');
+                editableDiv.contentEditable = 'true';
+                editableDiv.style.position = 'absolute';
+                editableDiv.style.left = event.clientX + 'px';
+                editableDiv.style.top = event.clientY + 'px';
+                editableDiv.innerText = '點擊此處進行編輯';
+                document.body.appendChild(editableDiv);
+
+                editableDiv.addEventListener('blur', () => {
+                    const content = editableDiv.textContent;
+                    texts.push([coords.x / scale + offsetX, (coords.y + editableDiv.offsetHeight) / scale + offsetY, content])
+                    editableDiv.remove();
+                });
+            }
+		});
+
+		canvas.addEventListener("mousemove", function(event) {
+			var coords = getRelativeCoords(event);
+			if (isDragging) {
+				var dx = coords.x - lastX;
+				var dy = coords.y - lastY;
+				lastX = coords.x;
+				lastY = coords.y;
+				offsetX -= dx / scale;
+				offsetY -= dy / scale;
+			}
+			draw();
+		});
+
+		canvas.addEventListener("mouseup", function(event) {
+			isDragging = false;
+			if(event.button == 0) {
+				var coords = getRelativeCoords(event);
+				var endX = (coords.x / scale) + offsetX;
+				var endY = (coords.y / scale) + offsetY;
+				lines.push(
+					postProcessLine(
+						[startX, startY, endX, endY]
+					)
+				);
+		        lines = cleanAndMergeLines(lines, offset / scale);
+				draw();
+			}
+		});
+
+		canvas.addEventListener("mouseleave", function() {
+			isDragging = false;
+		});
+
+		document.addEventListener("contextmenu", function(event) {
+			event.preventDefault();
+		});
+
+		lines = cleanAndMergeLines(lines, offset / scale);
+		draw();
+	</script>
+
+</body>
+</html>
