@@ -13,7 +13,7 @@ scale = 1
 line_width = 5
 offset = 3
 enable_ocr = 0
-enable_regen = 1
+enable_regen = 0
 enable_ai = 0
 
 def generate_image(lines, w, h):
